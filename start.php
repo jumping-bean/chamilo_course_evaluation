@@ -45,6 +45,10 @@ if ('POST' === ($_SERVER['REQUEST_METHOD'] ?? 'GET')) {
         $message = $exception->getMessage();
         $level = 'danger';
     }
+    if ('open_evaluation' === $do && 'danger' !== $level && !headers_sent()) {
+        header('Location: '.$view->courseUrl('edit'));
+        exit;
+    }
     Security::clear_token();
 }
 
@@ -109,7 +113,7 @@ if (in_array($action, ['edit', 'questions', 'add'], true) && $canManage) {
 } elseif ('mine' === $action && !$canManage) {
     echo studentResponse($view, $manager, $evaluation, $userId);
 } elseif ($canManage) {
-    echo teacherHome($view, $manager, $evaluation, $courseId, $sessionId);
+    echo teacherHome($view, $manager, $evaluation, $courseId, $sessionId, $globalTemplates, 'danger' === $level && 'open_evaluation' === ($_POST['do'] ?? ''));
 } else {
     echo studentHome($view, $manager, $evaluation, $userId, $courseId, $sessionId, $message, $level);
 }
@@ -478,13 +482,15 @@ function teacherHome(
     EvaluationManager $manager,
     $evaluation,
     int $courseId,
-    int $sessionId
+    int $sessionId,
+    array $globalTemplates = [],
+    bool $reopenDialog = false
 ): string {
     $items = [];
     if (!$evaluation) {
         $items[] = [
             'label' => $view->t('AddEvaluation'),
-            'url' => $view->courseUrl('edit'),
+            'dialog' => 'ce-create-dialog',
             'icon' => 'mdi mdi-plus-box',
             'primary' => true,
         ];
@@ -517,7 +523,9 @@ function teacherHome(
                 .'</form>';
         }
 
-        return $html.'<p class="text-muted">'.$view->e($sessionId > 0 ? $view->t('NoSessionEvaluation') : $view->t('NoCourseEvaluation')).'</p>';
+        return $html
+            .newEvaluationDialog($view, $manager, $globalTemplates, $courseId, $sessionId, 'ce-create-dialog', $reopenDialog)
+            .'<p class="text-muted">'.$view->e($sessionId > 0 ? $view->t('NoSessionEvaluation') : $view->t('NoCourseEvaluation')).'</p>';
     }
 
     $html .= '<p class="ce-version">'.$view->e($view->t('Version').' '.$evaluation->getQuestionnaireVersion()).'</p>';
@@ -532,6 +540,63 @@ function teacherHome(
     return $html;
 }
 
+function newEvaluationDialog(
+    EvaluationView $view,
+    EvaluationManager $manager,
+    array $globalTemplates,
+    int $courseId,
+    int $sessionId,
+    string $dialogId,
+    bool $open
+): string {
+    $instructorId = $manager->resolveInstructorId($courseId, $sessionId);
+    $html = '<dialog id="'.$view->e($dialogId).'" class="ce-dialog"'.($open ? ' data-ce-open="1"' : '').'>'
+        .'<form method="post" action="'.$view->e($view->courseUrl('home')).'" class="ce-form">'
+        .$view->tokenField()
+        .'<input type="hidden" name="do" value="open_evaluation">'
+        .'<input type="hidden" name="template_id" value="0">'
+        .'<h3>'.$view->e($view->t('AddEvaluation')).'</h3>'
+        .'<p class="text-muted">'.$view->e($sessionId > 0 ? $view->t('DateRangeHelp') : $view->t('SelfPacedAlwaysOpen')).'</p>';
+    if ($globalTemplates) {
+        $html .= '<div class="mb-3"><label class="form-label">'.$view->e($view->t('ChooseTemplate')).'</label>'
+            .'<select class="form-select" name="global_template_id" required>'
+            .'<option value="">'.$view->e($view->t('ChooseTemplatePlaceholder')).'</option>';
+        foreach ($globalTemplates as $template) {
+            $html .= '<option value="'.(int) $template->getId().'">'.$view->e($template->getTitle()).'</option>';
+        }
+        $html .= '</select><div class="text-muted">'.$view->e($view->t('ChooseTemplateHelp')).'</div></div>';
+    } else {
+        $html .= '<p>'.$view->e($view->t('ChooseQuestionnaire')).'</p>';
+    }
+    if ($sessionId > 0) {
+        $html .= '<div class="mb-3"><label class="form-label">'.$view->e($view->t('Instructor')).'</label>'
+            .'<select class="form-select" name="instructor_id">';
+        foreach ($manager->instructorChoices($courseId, $sessionId) as $choice) {
+            $html .= '<option value="'.(int) $choice['id'].'"'.((int) $choice['id'] === (int) $instructorId ? ' selected' : '').'>'
+                .$view->e($choice['name']).'</option>';
+        }
+        $html .= '</select></div>'
+            .'<div class="row"><div class="col-md-6 mb-3"><label class="form-label">'.$view->e($view->t('OpensAt')).'</label>'
+            .'<input class="form-control" type="date" name="opens_at" required></div>'
+            .'<div class="col-md-6 mb-3"><label class="form-label">'.$view->e($view->t('ClosesAt')).'</label>'
+            .'<input class="form-control" type="date" name="closes_at" required></div></div>';
+    }
+    $hasAssessment = $manager->hasGradebookAssessment($courseId, $sessionId);
+    $html .= '<div class="form-check mb-3"><input class="form-check-input" type="checkbox" name="anonymous" value="1" id="ce-anon"'
+        .($view->anonymousByDefault() ? ' checked' : '').'>'
+        .'<label class="form-check-label" for="ce-anon">'.$view->e($view->t('AnonymousResponses')).'</label></div>'
+        .'<div class="form-check mb-3'.($hasAssessment ? '' : ' ce-check-disabled').'"><input class="form-check-input" type="checkbox" name="require_certificate" value="1" id="ce-cert"'
+        .($hasAssessment ? '' : ' disabled').'>'
+        .'<label class="form-check-label" for="ce-cert">'.$view->e($view->t('RequireCertificate')).'</label></div>'
+        .'<p class="text-muted">'.$view->e($view->t($hasAssessment ? 'RequireCertificateHelp' : 'RequireCertificateUnavailable')).'</p>'
+        .'<div class="ce-dialog-actions">'
+        .'<button class="p-button p-component p-button-success" type="submit"><span class="p-button-label">'.$view->e($view->t('Save')).'</span></button>'
+        .'<button class="p-button p-component p-button-outlined p-button-secondary" type="button" onclick="this.closest(\'dialog\').close()"><span class="p-button-label">'.$view->e($view->t('Cancel')).'</span></button>'
+        .'</div></form></dialog>';
+
+    return $html;
+}
+
 function evaluationEditor(
     EvaluationView $view,
     EvaluationManager $manager,
@@ -542,14 +607,13 @@ function evaluationEditor(
 ): string {
     $instructorId = $evaluation?->getInstructorId() ?: $manager->resolveInstructorId($courseId, $sessionId);
     $locked = $evaluation && $sessionId > 0 && $manager->templateHasSubmissions($evaluation->getTemplate());
+    if (!$evaluation) {
+        return newEvaluationDialog($view, $manager, $globalTemplates, $courseId, $sessionId, 'ce-header-dialog', true)
+            .'<p class="text-muted">'.$view->e($view->t('ChooseTemplateFirst')).'</p>';
+    }
     $html = '<div class="ce-heading-row">'
-        .($evaluation ? '<p class="ce-version">'.$view->e($view->t('Version').' '.$evaluation->getQuestionnaireVersion()).'</p>' : '')
-        .$view->dialogIcon(
-            $evaluation ? $view->t('Edit') : $view->t('AddEvaluation'),
-            'ce-header-dialog',
-            $evaluation ? 'mdi mdi-pencil' : 'mdi mdi-plus',
-            !$evaluation
-        )
+        .'<p class="ce-version">'.$view->e($view->t('Version').' '.$evaluation->getQuestionnaireVersion()).'</p>'
+        .$view->dialogIcon($view->t('Edit'), 'ce-header-dialog', 'mdi mdi-pencil', false)
         .'</div>';
     if ($sessionId > 0 && $evaluation && $evaluation->getOpensAt() && $evaluation->getClosesAt()) {
         $html .= '<p class="text-muted">'.$view->e($evaluation->getOpensAt()->format('j M Y').' – '.$evaluation->getClosesAt()->format('j M Y')).'</p>';
@@ -589,12 +653,13 @@ function evaluationEditor(
         }
         $html .= '</select><div class="text-muted">'.$view->e($view->t('QuestionSourceHelp')).'</div></div>';
     } elseif ($globalTemplates && !$locked) {
-        $html .= '<div class="mb-3"><label class="form-label">'.$view->e($view->t('GlobalTemplates')).'</label>'
-            .'<select class="form-select" name="global_template_id">';
+        $html .= '<div class="mb-3"><label class="form-label">'.$view->e($view->t('ChooseTemplate')).'</label>'
+            .'<select class="form-select" name="global_template_id" required>'
+            .'<option value="">'.$view->e($view->t('ChooseTemplatePlaceholder')).'</option>';
         foreach ($globalTemplates as $template) {
             $html .= '<option value="'.(int) $template->getId().'">'.$view->e($template->getTitle()).'</option>';
         }
-        $html .= '</select></div>';
+        $html .= '</select><div class="text-muted">'.$view->e($view->t('ChooseTemplateHelp')).'</div></div>';
     }
     if (!$globalTemplates && !$evaluation) {
         $html .= '<p>'.$view->e($view->t('ChooseQuestionnaire')).'</p>';
@@ -627,9 +692,6 @@ function evaluationEditor(
         .'<button class="p-button p-component p-button-success" type="submit"><span class="p-button-label">'.$view->e($view->t('Save')).'</span></button>'
         .'<button class="p-button p-component p-button-outlined p-button-secondary" type="button" onclick="this.closest(\'dialog\').close()"><span class="p-button-label">'.$view->e($view->t('Cancel')).'</span></button>'
         .'</div></form></dialog>';
-    if (!$evaluation) {
-        $html .= '<script>document.getElementById("ce-header-dialog").showModal()</script>';
-    }
     $html .= '<h2>'.$view->e($view->t('Questions')).'</h2>';
     if ($evaluation) {
         $template = $evaluation->getTemplate();
@@ -666,19 +728,7 @@ function evaluationEditor(
 
         return $html.$view->questionTable($manager->questionsFor($template), $base, !$locked);
     }
-    if (!$globalTemplates) {
-        return $html;
-    }
-    $previewId = (int) ($_GET['global_template_id'] ?? $globalTemplates[0]->getId());
-    $html .= '<p class="text-muted">'.$view->e($view->t('QuestionsFromTemplate')).'</p>';
-    foreach ($globalTemplates as $template) {
-        $id = (int) $template->getId();
-        $html .= '<div class="ce-template-questions" data-template="'.$id.'"'.($id === $previewId ? '' : ' hidden').'>'
-            .$view->questionTable($manager->questionsFor($template), $view->courseUrl('edit'), false)
-            .'</div>';
-    }
-
-    return $html;
+    return $html.'<p class="text-muted">'.$view->e($view->t('ChooseTemplateFirst')).'</p>';
 }
 
 function learnerStatusTable(EvaluationView $view, EvaluationManager $manager, $evaluation, int $courseId, int $sessionId): string

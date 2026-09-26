@@ -2195,6 +2195,24 @@ class EvaluationManager
             $qb->andWhere($evaluationAlias.'.instructor_id = :instructorId')
                 ->setParameter('instructorId', (int) $filters['instructor_id']);
         }
+        $coachId = (int) ($filters['coach_id'] ?? 0);
+        if ($coachId > 0) {
+            $qb->andWhere(
+                '(('.$evaluationAlias.'.session_id > 0 AND '.$evaluationAlias.'.instructor_id = :coachId)
+                  OR (('.$evaluationAlias.'.session_id IS NULL OR '.$evaluationAlias.'.session_id = 0)
+                      AND EXISTS (
+                          SELECT 1 FROM plugin_course_evaluation_answer coach_answer
+                          INNER JOIN plugin_course_evaluation_question coach_question
+                              ON coach_question.id = coach_answer.question_id
+                          WHERE coach_answer.submission_id = '.$submissionAlias.'.id
+                            AND coach_question.type = :coachQuestionType
+                            AND CONCAT(\',\', coach_answer.text_value, \',\') LIKE :coachLike
+                      )))'
+            )
+                ->setParameter('coachId', $coachId)
+                ->setParameter('coachQuestionType', 'instructor')
+                ->setParameter('coachLike', '%,'.$coachId.',%');
+        }
         if ($questionAlias && !empty($filters['category'])) {
             $qb->andWhere($questionAlias.'.category = :category')
                 ->setParameter('category', $filters['category']);
