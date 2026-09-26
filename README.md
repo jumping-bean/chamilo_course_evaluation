@@ -64,3 +64,7 @@ Disabling the plugin keeps the data. Uninstalling it drops the plugin tables, re
 Chamilo does not migrate these tables. `CourseEvaluationPlugin::update()` does. It runs from `install()` and on the first page load after the new files are copied. The applied version is stored in `plugin_course_evaluation_schema`.
 
 A new table or column is a new step in `schemaSteps()`, for example `'1.2.0' => 'migrate120'`, plus the same version in `CourseEvaluationPlugin::VERSION` and the fallback in `plugin.php`. The step checks that the table or column is missing, then adds it. Changing only the `CREATE TABLE` text leaves an existing database as it is. Version 1.1.0 renames `plugin_course_evaluation_campaign` to `plugin_course_evaluation_evaluation`.
+
+## License
+
+Copyright (C) 2026 Mark Clarke. This plugin is free software under the GNU General Public License, version 3 or any later version. The terms are in the LICENSE file.
