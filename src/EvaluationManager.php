@@ -1692,6 +1692,18 @@ class EvaluationManager
         return $this->isCurrentSessionCoach();
     }
 
+    public function canViewReports(): bool
+    {
+        if ($this->canManageCourse()) {
+            return true;
+        }
+        if (function_exists('api_is_session_admin') && api_is_session_admin()) {
+            return true;
+        }
+
+        return function_exists('api_is_drh') && api_is_drh();
+    }
+
     private function isCurrentSessionCoach(): bool
     {
         if (!function_exists('api_get_user_id') || !function_exists('api_get_session_id') || !function_exists('api_get_course_int_id')) {

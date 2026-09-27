@@ -34,7 +34,7 @@ use Chamilo\PluginBundle\CourseEvaluation\Entity\Template;
 use Chamilo\PluginBundle\CourseEvaluation\EvaluationManager;
 use Chamilo\PluginBundle\CourseEvaluation\EvaluationView;
 
-api_protect_course_script(true);
+api_protect_course_script(true, true);
 
 try {
 $plugin = CourseEvaluationPlugin::create();
@@ -46,8 +46,9 @@ $view = new EvaluationView($plugin);
 $courseId = (int) api_get_course_int_id();
 $sessionId = (int) api_get_session_id();
 $userId = (int) api_get_user_id();
-$action = (string) ($_REQUEST['action'] ?? 'home');
+$action = (string) ($_POST['action'] ?? $_GET['action'] ?? 'home');
 $canManage = $manager->canManageCourse();
+$canViewReports = $manager->canViewReports();
 $message = '';
 $level = 'success';
 
@@ -71,6 +72,9 @@ if ('POST' === ($_SERVER['REQUEST_METHOD'] ?? 'GET')) {
 
 $evaluation = $manager->findEvaluation($courseId, $sessionId);
 $globalTemplates = $manager->globalTemplates(true);
+if ($canViewReports && !$canManage && !in_array($action, ['report', 'responses', 'response'], true)) {
+    $action = 'report';
+}
 
 $breadcrumbTitle = $plugin->get_lang('CourseEvaluation');
 if (in_array($action, ['edit', 'questions', 'add'], true)) {
@@ -109,11 +113,11 @@ echo '<div class="ce-wrap" id="ce-root">';
 $pageTitle = in_array($action, ['edit', 'questions', 'add'], true)
     ? 'CourseEvaluationQuestions'
     : 'CourseEvaluation';
-$showReportHeader = 'report' === $action && $canManage;
+$showReportHeader = 'report' === $action && $canViewReports;
 if (!$showReportHeader) {
     echo '<h1>'.$view->e($plugin->get_lang($pageTitle)).'</h1>';
 }
-$studentFinished = !$canManage && $evaluation && $manager->findSubmission($evaluation, $userId);
+$studentFinished = !$canViewReports && $evaluation && $manager->findSubmission($evaluation, $userId);
 echo $view->flash($message, $level);
 if (!$showReportHeader && !$studentFinished) {
     echo contextSummary($view, $manager, $courseId, $sessionId, $evaluation, !$canManage);
@@ -121,16 +125,18 @@ if (!$showReportHeader && !$studentFinished) {
 
 if (in_array($action, ['edit', 'questions', 'add'], true) && $canManage) {
     echo evaluationEditor($view, $manager, $globalTemplates, $evaluation, $courseId, $sessionId);
-} elseif ('response' === $action && $canManage) {
+} elseif ('response' === $action && $canViewReports) {
     echo responseDetail($view, $manager, $courseId, $sessionId);
-} elseif ('responses' === $action && $canManage) {
+} elseif ('responses' === $action && $canViewReports) {
     echo responsesScreen($view, $manager, $evaluation, $courseId, $sessionId);
-} elseif ('report' === $action && $canManage) {
+} elseif ('report' === $action && $canViewReports) {
     echo reportScreen($view, $manager, $courseId, $sessionId);
-} elseif ('mine' === $action && !$canManage) {
+} elseif ('mine' === $action && !$canViewReports) {
     echo studentResponse($view, $manager, $evaluation, $userId);
 } elseif ($canManage) {
     echo teacherHome($view, $manager, $evaluation, $courseId, $sessionId, $globalTemplates, 'danger' === $level && 'open_evaluation' === ($_POST['do'] ?? ''));
+} elseif ($canViewReports) {
+    echo reportScreen($view, $manager, $courseId, $sessionId);
 } else {
     echo studentHome($view, $manager, $evaluation, $userId, $courseId, $sessionId, $message, $level);
 }
@@ -950,7 +956,7 @@ function answerTable(EvaluationView $view, EvaluationManager $manager, array $qu
 
 function reportScreen(EvaluationView $view, EvaluationManager $manager, int $courseId, int $sessionId): string
 {
-    $filters = filtersFromRequest();
+    $filters = filtersFromRequest($manager);
     $filters['course_id'] = $courseId;
     $filters['action'] = 'report';
     if ($sessionId > 0) {
@@ -1028,7 +1034,7 @@ function studentHome(EvaluationView $view, EvaluationManager $manager, $evaluati
         );
 }
 
-function filtersFromRequest(): array
+function filtersFromRequest(EvaluationManager $manager): array
 {
     return [
         'from' => preg_match('/^\d{4}-\d{2}-\d{2}$/', (string) ($_GET['from'] ?? '')) ? $_GET['from'] : '',
@@ -1036,7 +1042,7 @@ function filtersFromRequest(): array
         'course_id' => (int) ($_GET['course_id'] ?? 0),
         'session_id' => (int) ($_GET['session_id'] ?? 0),
         'instructor_id' => (int) ($_GET['instructor_id'] ?? 0),
-        'category' => (string) ($_GET['category'] ?? ''),
+        'category' => in_array((string) ($_GET['category'] ?? ''), $manager->categories(), true) ? (string) $_GET['category'] : '',
         'coach_id' => (int) ($_GET['coach_id'] ?? 0),
         'scope' => in_array((string) ($_GET['scope'] ?? ''), ['self_paced', 'session'], true) ? (string) $_GET['scope'] : '',
     ];
@@ -1046,15 +1052,26 @@ function exportCsv(EvaluationManager $manager, array $filters): void
 {
     header('Content-Type: text/csv; charset=UTF-8');
     header('Content-Disposition: attachment; filename="course-evaluation.csv"');
+    header('X-Content-Type-Options: nosniff');
     $out = fopen('php://output', 'w');
     fputcsv($out, ['category', 'prompt', 'average', 'scores']);
     foreach ($manager->questionReport($filters) as $row) {
-        fputcsv($out, [$row['category'], $row['prompt'], $row['average_score'], $row['score_count']]);
+        fputcsv($out, [
+            EvaluationView::csvValue($row['category']),
+            EvaluationView::csvValue($row['prompt']),
+            $row['average_score'],
+            $row['score_count'],
+        ]);
     }
     fputcsv($out, []);
     fputcsv($out, ['comment', 'course_id', 'session_id', 'submitted_at']);
     foreach ($manager->improvementComments($filters) as $row) {
-        fputcsv($out, [$row['improvement_comment'], $row['course_id'], $row['session_id'], $row['submitted_at']]);
+        fputcsv($out, [
+            EvaluationView::csvValue($row['improvement_comment']),
+            $row['course_id'],
+            $row['session_id'],
+            EvaluationView::csvValue($row['submitted_at']),
+        ]);
     }
     fclose($out);
     exit;

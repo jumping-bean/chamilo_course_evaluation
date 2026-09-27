@@ -36,7 +36,7 @@ use Chamilo\PluginBundle\CourseEvaluation\Entity\Template;
 use Chamilo\PluginBundle\CourseEvaluation\EvaluationManager;
 use Chamilo\PluginBundle\CourseEvaluation\EvaluationView;
 
-api_protect_admin_script(true);
+api_protect_admin_script(true, true);
 
 try {
 $plugin = CourseEvaluationPlugin::create();
@@ -45,9 +45,17 @@ if (!$plugin->isEnabled()) {
 }
 $manager = new EvaluationManager();
 $view = new EvaluationView($plugin);
-$action = (string) ($_REQUEST['action'] ?? 'templates');
+$reportsOnly = !api_is_platform_admin();
+$action = (string) ($_POST['action'] ?? $_GET['action'] ?? ($reportsOnly ? 'courses' : 'templates'));
 $message = '';
 $level = 'success';
+
+if ($reportsOnly && 'POST' === ($_SERVER['REQUEST_METHOD'] ?? 'GET')) {
+    api_not_allowed(true);
+}
+if ($reportsOnly && !in_array($action, ['courses', 'report', 'export'], true)) {
+    $action = 'courses';
+}
 
 if ('POST' === ($_SERVER['REQUEST_METHOD'] ?? 'GET')) {
     if (class_exists('Security') && !Security::check_token('post')) {
@@ -78,39 +86,47 @@ if ('export' === $action) {
 }
 
 $pluginsUrl = api_get_path(WEB_CODE_PATH).'admin/settings.php?category=Plugins';
-$interbreadcrumb[] = [
-    'url' => api_get_path(WEB_CODE_PATH).'admin/index.php',
-    'name' => get_lang('Administration'),
-];
-$interbreadcrumb[] = [
-    'url' => $pluginsUrl,
-    'name' => get_lang('Plugins'),
-];
-$breadcrumbTitle = $plugin->get_lang('QuestionTemplates');
 $reportTitles = [
     'courses' => 'CourseReport',
     'report' => 'InstructorReport',
 ];
-if (isset($reportTitles[$action])) {
+if ($reportsOnly) {
+    $breadcrumbTitle = $plugin->get_lang($reportTitles[$action] ?? 'CourseReport');
+} else {
     $interbreadcrumb[] = [
-        'url' => 'admin.php?action=templates',
-        'name' => $plugin->get_lang('QuestionTemplates'),
+        'url' => api_get_path(WEB_CODE_PATH).'admin/index.php',
+        'name' => get_lang('Administration'),
     ];
-    $breadcrumbTitle = $plugin->get_lang($reportTitles[$action]);
-} elseif ('new' === $action || (int) ($_GET['template_id'] ?? 0) > 0) {
     $interbreadcrumb[] = [
-        'url' => 'admin.php?action=templates',
-        'name' => $plugin->get_lang('QuestionTemplates'),
+        'url' => $pluginsUrl,
+        'name' => get_lang('Plugins'),
     ];
-    $editing = $manager->findTemplate((int) ($_GET['template_id'] ?? 0));
-    $breadcrumbTitle = $editing ? $editing->getTitle() : $plugin->get_lang('NewTemplate');
+    $breadcrumbTitle = $plugin->get_lang('QuestionTemplates');
+    if (isset($reportTitles[$action])) {
+        $interbreadcrumb[] = [
+            'url' => 'admin.php?action=templates',
+            'name' => $plugin->get_lang('QuestionTemplates'),
+        ];
+        $breadcrumbTitle = $plugin->get_lang($reportTitles[$action]);
+    } elseif ('new' === $action || (int) ($_GET['template_id'] ?? 0) > 0) {
+        $interbreadcrumb[] = [
+            'url' => 'admin.php?action=templates',
+            'name' => $plugin->get_lang('QuestionTemplates'),
+        ];
+        $editing = $manager->findTemplate((int) ($_GET['template_id'] ?? 0));
+        $breadcrumbTitle = $editing ? $editing->getTitle() : $plugin->get_lang('NewTemplate');
+    }
 }
 Display::display_header($breadcrumbTitle);
 echo $view->styles();
 $editingTemplate = 'new' === $action || (int) ($_GET['template_id'] ?? 0) > 0;
-$backUrl = $editingTemplate || isset($reportTitles[$action])
-    ? 'admin.php?action=templates'
-    : api_get_path(WEB_CODE_PATH).'admin/settings.php?category=Plugins';
+if ($reportsOnly) {
+    $backUrl = 'report' === $action ? 'admin.php?action=courses' : api_get_path(WEB_PATH);
+} else {
+    $backUrl = $editingTemplate || isset($reportTitles[$action])
+        ? 'admin.php?action=templates'
+        : $pluginsUrl;
+}
 $backLabel = $view->t('Back');
 echo '<div id="ce-screen">';
 echo Display::toolbarAction('ce-toolbar', [
@@ -120,7 +136,7 @@ echo Display::toolbarAction('ce-toolbar', [
         ['title' => $backLabel]
     ),
 ]);
-echo adminNav($view, $action, []);
+echo adminNav($view, $action, [], $reportsOnly);
 echo '<div class="ce-wrap" id="ce-root">';
 try {
 echo $view->flash($message, $level);
@@ -163,11 +179,11 @@ function handleAdminPost(string $do, EvaluationManager $manager, EvaluationView 
     };
 }
 
-function adminNav(EvaluationView $view, string $action, array $filters): string
+function adminNav(EvaluationView $view, string $action, array $filters, bool $reportsOnly = false): string
 {
     $editing = 'new' === $action || (int) ($_GET['template_id'] ?? 0) > 0;
     $reporting = in_array($action, ['courses', 'report'], true);
-    $button = $editing || $reporting
+    $button = $editing || $reporting || $reportsOnly
         ? null
         : [
             'label' => $view->t('NewTemplate'),
@@ -185,6 +201,12 @@ function adminNav(EvaluationView $view, string $action, array $filters): string
         ['label' => $view->t('CourseReport'), 'url' => 'admin.php?action=courses', 'icon' => 'mdi mdi-chart-box', 'active' => 'courses' === $action],
         ['label' => $view->t('InstructorReport'), 'url' => 'admin.php?action=report', 'icon' => 'mdi mdi-account', 'active' => 'report' === $action],
     ];
+    if ($reportsOnly) {
+        $tabs = array_values(array_filter(
+            $tabs,
+            static fn (array $tab): bool => !str_contains($tab['url'], 'action=templates')
+        ));
+    }
 
     return $view->listChrome($view->t($title), $tabs, $button);
 }
@@ -466,11 +488,12 @@ function adminExport(EvaluationManager $manager): void
         'course_id' => (int) ($_GET['course_id'] ?? 0),
         'session_id' => (int) ($_GET['session_id'] ?? 0),
         'instructor_id' => (int) ($_GET['instructor_id'] ?? 0),
-        'category' => (string) ($_GET['category'] ?? ''),
+        'category' => in_array((string) ($_GET['category'] ?? ''), $manager->categories(), true) ? (string) $_GET['category'] : '',
         'filter_session' => '' !== (string) ($_GET['session_id'] ?? ''),
     ];
     header('Content-Type: text/csv; charset=UTF-8');
     header('Content-Disposition: attachment; filename="course-evaluation-report.csv"');
+    header('X-Content-Type-Options: nosniff');
     $out = fopen('php://output', 'w');
     fputcsv($out, ['instructor_id', 'course_id', 'average', 'responses']);
     foreach ($manager->instructorReport($filters) as $row) {
@@ -479,12 +502,25 @@ function adminExport(EvaluationManager $manager): void
     fputcsv($out, []);
     fputcsv($out, ['category', 'prompt', 'average', 'scores', 'course_id', 'instructor_id']);
     foreach ($manager->questionReport($filters) as $row) {
-        fputcsv($out, [$row['category'], $row['prompt'], $row['average_score'], $row['score_count'], $row['course_id'], $row['instructor_id']]);
+        fputcsv($out, [
+            EvaluationView::csvValue($row['category']),
+            EvaluationView::csvValue($row['prompt']),
+            $row['average_score'],
+            $row['score_count'],
+            $row['course_id'],
+            $row['instructor_id'],
+        ]);
     }
     fputcsv($out, []);
     fputcsv($out, ['comment', 'course_id', 'session_id', 'instructor_id', 'submitted_at']);
     foreach ($manager->improvementComments($filters) as $row) {
-        fputcsv($out, [$row['improvement_comment'], $row['course_id'], $row['session_id'], $row['instructor_id'], $row['submitted_at']]);
+        fputcsv($out, [
+            EvaluationView::csvValue($row['improvement_comment']),
+            $row['course_id'],
+            $row['session_id'],
+            $row['instructor_id'],
+            EvaluationView::csvValue($row['submitted_at']),
+        ]);
     }
     fclose($out);
     exit;

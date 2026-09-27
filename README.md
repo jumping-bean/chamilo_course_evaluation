@@ -37,6 +37,7 @@ This plugin does not do that job. It keeps one evaluation on the course and one 
 ## What each role does
 
 - **Platform admin** (`admin.php`): create global templates, add or edit questions, and run reports across courses, instructors, and periods. Export CSV from the report page.
+- **Session administrator** and **HR manager**: open the course report and the instructor report, and export CSV. They do not edit templates or questions. A session administrator finds **Course report** under Administration → Sessions management. An HR manager opens `/plugin/CourseEvaluation/admin.php?action=courses`.
 - **Teacher or session coach** (course tool): copy a global template into the current course, add questions, and set the evaluation period for the current session. With no session, the same screen opens the self-paced evaluation. The instructor is taken from the session course coach, then the session general coach, then a course teacher. Reports on the course tool stay limited to that course.
 - **Learner**: starts the open evaluation, continues it if they left, and reviews it after submitting.
 

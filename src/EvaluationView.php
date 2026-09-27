@@ -153,6 +153,13 @@ document.addEventListener("DOMContentLoaded",function(){ceInitWizard(document);c
         exit;
     }
 
+    public static function csvValue(mixed $value): string
+    {
+        $value = (string) $value;
+
+        return preg_match('/^[=+\-@\t\r]/', $value) ? "'".$value : $value;
+    }
+
     public function flash(?string $message, string $level = 'success'): string
     {
         if (null === $message || '' === $message) {

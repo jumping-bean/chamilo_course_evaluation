@@ -63,6 +63,14 @@ class CourseEvaluationPlugin extends Plugin
         return parent::isEnabled();
     }
 
+    /**
+     * Course-home card. chart-box is ToolIcon::TRACKING, the reporting chart.
+     */
+    public function getCourseToolIcon(): string
+    {
+        return 'mdi-chart-box';
+    }
+
     public function install(): void
     {
         $this->update();

@@ -17,6 +17,13 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
+declare(strict_types=1);
+
+if (!function_exists('api_protect_admin_script')) {
+    require_once __DIR__.'/../../main/inc/global.inc.php';
+}
+api_protect_admin_script();
+
 require_once __DIR__.'/src/CourseEvaluationPlugin.php';
 
 CourseEvaluationPlugin::create()->uninstall();

@@ -20,6 +20,7 @@
 declare(strict_types=1);
 
 use Chamilo\CoreBundle\Event\AbstractEvent;
+use Chamilo\CoreBundle\Event\AdminBlockDisplayedEvent;
 use Chamilo\CoreBundle\Event\CourseCreatedEvent;
 use Chamilo\CoreBundle\Event\CourseDeletedEvent;
 use Chamilo\CoreBundle\Event\Events;
@@ -42,6 +43,7 @@ class CourseEvaluationEventSubscriber implements EventSubscriberInterface
             Events::COURSE_CREATED => 'onCourseCreated',
             Events::COURSE_DELETED => 'onCourseDeleted',
             Events::SESSION_DELETED => 'onSessionDeleted',
+            Events::ADMIN_BLOCK_DISPLAYED => 'onAdminBlock',
         ];
     }
 
@@ -70,6 +72,21 @@ class CourseEvaluationEventSubscriber implements EventSubscriberInterface
             return;
         }
         (new EvaluationManager())->deleteForCourse($courseId);
+    }
+
+    public function onAdminBlock(AdminBlockDisplayedEvent $event): void
+    {
+        if (AbstractEvent::TYPE_POST !== $event->getType() || !$this->plugin->isEnabled()) {
+            return;
+        }
+        if (!function_exists('api_is_session_admin') || !api_is_session_admin() || api_is_platform_admin()) {
+            return;
+        }
+        $event->setItems('sessions', [[
+            'class' => 'item-course-evaluation-report',
+            'url' => api_get_path(WEB_PLUGIN_PATH).'CourseEvaluation/admin.php?action=courses',
+            'label' => $this->plugin->get_lang('CourseReport'),
+        ]]);
     }
 
     public function onSessionDeleted(SessionDeletedEvent $event): void
