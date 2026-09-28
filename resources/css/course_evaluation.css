@@ -200,6 +200,11 @@
     gap: 0.5rem;
 }
 
+.ce-inline-form {
+    display: inline-flex;
+    margin: 0;
+}
+
 .ce-questionnaire-pick {
     display: flex;
     align-items: center;

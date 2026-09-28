@@ -67,6 +67,10 @@ if ('POST' === ($_SERVER['REQUEST_METHOD'] ?? 'GET')) {
         header('Location: '.$view->courseUrl('edit'));
         exit;
     }
+    if ('delete_session_evaluation' === $do && 'danger' !== $level && !headers_sent()) {
+        header('Location: '.$view->courseUrl('home', ['deleted' => 1]));
+        exit;
+    }
     Security::clear_token();
 }
 
@@ -116,6 +120,9 @@ $pageTitle = in_array($action, ['edit', 'questions', 'add'], true)
 $showReportHeader = 'report' === $action && $canViewReports;
 if (!$showReportHeader) {
     echo '<h1>'.$view->e($plugin->get_lang($pageTitle)).'</h1>';
+}
+if ('' === $message && $canManage && isset($_GET['deleted'])) {
+    $message = $view->t('EvaluationDeleted');
 }
 $studentFinished = !$canViewReports && $evaluation && $manager->findSubmission($evaluation, $userId);
 echo $view->flash($message, $level);
@@ -179,6 +186,7 @@ function handlePost(
         'copy_session_evaluation' => copySessionEvaluation($manager, $view, $courseId, $sessionId, $userId),
         'grant_extension' => grantExtension($manager, $view, $courseId, $sessionId, $userId),
         'revoke_extension' => revokeExtension($manager, $view, $courseId, $sessionId),
+        'delete_session_evaluation' => deleteSessionEvaluation($manager, $view, $courseId, $sessionId),
         default => '',
     };
 }
@@ -387,6 +395,47 @@ function copySessionEvaluation(EvaluationManager $manager, EvaluationView $view,
     return $view->t('EvaluationOpened');
 }
 
+function deleteSessionEvaluation(EvaluationManager $manager, EvaluationView $view, int $courseId, int $sessionId): string
+{
+    if ($sessionId <= 0) {
+        throw new RuntimeException($view->t('NoSessionEvaluation'));
+    }
+    $evaluation = $manager->findEvaluation($courseId, $sessionId);
+    if (!$evaluation) {
+        throw new RuntimeException($view->t('NoSessionEvaluation'));
+    }
+    if ($manager->submissionCount($evaluation) > 0 && !$view->allowDeleteCompleted()) {
+        throw new RuntimeException($view->t('DeleteCompletedBlocked'));
+    }
+    $manager->deleteSessionEvaluation($evaluation);
+
+    return $view->t('EvaluationDeleted');
+}
+
+function deleteEvaluationForm(EvaluationView $view, EvaluationManager $manager, $evaluation): string
+{
+    $count = $manager->submissionCount($evaluation);
+    $label = $view->t('DeleteEvaluation');
+    $button = '<button class="p-button p-component p-button-sm p-button-danger" type="%s" title="'.$view->e($label).'" aria-label="'.$view->e($label).'"%s>'
+        .'<span class="p-button-icon mdi mdi-delete"></span>'
+        .'<span class="p-button-label">'.$view->e($label).'</span></button>';
+    if ($count > 0 && !$view->allowDeleteCompleted()) {
+        $message = htmlspecialchars(json_encode($view->t('DeleteCompletedBlocked'), JSON_THROW_ON_ERROR), ENT_QUOTES, 'UTF-8');
+
+        return sprintf($button, 'button', ' onclick="alert('.$message.');"');
+    }
+    $confirm = $count > 0
+        ? str_replace('%count%', (string) $count, $view->t('ConfirmDeleteEvaluationWithResponses'))
+        : $view->t('ConfirmDeleteEvaluation');
+    $confirmJs = htmlspecialchars(json_encode($confirm, JSON_THROW_ON_ERROR), ENT_QUOTES, 'UTF-8');
+
+    return '<form method="post" class="ce-inline-form" onsubmit="return confirm('.$confirmJs.');">'
+        .$view->tokenField()
+        .'<input type="hidden" name="do" value="delete_session_evaluation">'
+        .sprintf($button, 'submit', '')
+        .'</form>';
+}
+
 function submitEvaluation(EvaluationManager $manager, EvaluationView $view, int $courseId, int $sessionId, int $userId): string
 {
     if ($sessionId > 0 && $manager->isDirectCourseStudent($userId, $courseId) && !$manager->isSessionLearner($userId, $courseId, $sessionId)) {
@@ -535,7 +584,8 @@ function teacherHome(
         'url' => $view->courseUrl('edit'),
         'icon' => 'mdi mdi-pencil',
     ]] : [];
-    $html = $view->iconMenu('ce-home-menu', $items, $end);
+    $delete = ($evaluation && $sessionId > 0) ? deleteEvaluationForm($view, $manager, $evaluation) : '';
+    $html = $view->iconMenu('ce-home-menu', $items, $end, $delete);
     if (!$evaluation) {
         if ($sessionId > 0 && $manager->findEvaluation($courseId, 0)) {
             $html .= '<form method="post" class="mb-3">'
@@ -637,6 +687,7 @@ function evaluationEditor(
     $html = '<div class="ce-heading-row">'
         .'<p class="ce-version">'.$view->e($view->t('Version').' '.$evaluation->getQuestionnaireVersion()).'</p>'
         .$view->dialogIcon($view->t('Edit'), 'ce-header-dialog', 'mdi mdi-pencil', false)
+        .($sessionId > 0 ? deleteEvaluationForm($view, $manager, $evaluation) : '')
         .'</div>';
     if ($sessionId > 0 && $evaluation && $evaluation->getOpensAt() && $evaluation->getClosesAt()) {
         $html .= '<p class="text-muted">'.$view->e($evaluation->getOpensAt()->format('j M Y').' – '.$evaluation->getClosesAt()->format('j M Y')).'</p>';

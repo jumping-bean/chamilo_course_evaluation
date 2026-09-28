@@ -1694,6 +1694,9 @@ class EvaluationManager
 
     public function canViewReports(): bool
     {
+        if (function_exists('api_is_student_view_active') && api_is_student_view_active()) {
+            return false;
+        }
         if ($this->canManageCourse()) {
             return true;
         }
@@ -2105,9 +2108,19 @@ class EvaluationManager
             'min_score' => 1,
         ];
         if ($stillThere) {
+            $currentList = $this->db->fetchOne(
+                'SELECT user_score_list FROM gradebook_evaluation WHERE id = :id',
+                ['id' => (int) $evaluationId]
+            );
+            if (!$this->isJsonDocument(is_string($currentList) ? $currentList : null)) {
+                $values['user_score_list'] = '[]';
+            }
             $this->db->update('gradebook_evaluation', $values, ['id' => (int) $evaluationId]);
         } else {
             $values['created_at'] = (new DateTime())->format('Y-m-d H:i:s');
+            // MariaDB stores JSON as LONGTEXT plus CHECK (JSON_VALID). An omitted
+            // column is stored as '' and the constraint gradebook_evaluation.user_score_list fails.
+            $values['user_score_list'] = '[]';
             $this->db->insert('gradebook_evaluation', $values);
             $evaluationId = (int) $this->db->lastInsertId();
             $evaluation->setGradebookEvaluationId($evaluationId);
@@ -2246,6 +2259,24 @@ class EvaluationManager
             $qb->andWhere($questionAlias.'.category = :category')
                 ->setParameter('category', $filters['category']);
         }
+    }
+
+    public function deleteSessionEvaluation(Evaluation $evaluation): void
+    {
+        if ($evaluation->getSessionId() <= 0 || !$evaluation->getId()) {
+            return;
+        }
+        $this->deleteEvaluations([(int) $evaluation->getId()]);
+    }
+
+    private function isJsonDocument(?string $value): bool
+    {
+        if (null === $value || '' === $value) {
+            return false;
+        }
+        json_decode($value);
+
+        return JSON_ERROR_NONE === json_last_error();
     }
 
     public function deleteForCourse(int $courseId): void

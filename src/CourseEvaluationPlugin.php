@@ -30,6 +30,7 @@ class CourseEvaluationPlugin extends Plugin
             'Course evaluation plugin',
             [
                 'anonymous_by_default' => 'boolean',
+                'allow_delete_completed' => 'boolean',
             ]
         );
 

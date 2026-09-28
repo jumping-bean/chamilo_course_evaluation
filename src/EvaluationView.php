@@ -51,6 +51,13 @@ class EvaluationView
         return in_array(strtolower((string) $value), ['1', 'true', 'yes', 'on'], true);
     }
 
+    public function allowDeleteCompleted(): bool
+    {
+        $value = $this->plugin->get('allow_delete_completed');
+
+        return in_array(strtolower((string) $value), ['1', 'true', 'yes', 'on'], true);
+    }
+
     public function categoryLabel(string $category): string
     {
         return $this->t('category_'.$category);
@@ -68,7 +75,7 @@ class EvaluationView
 
     public function styles(): string
     {
-        $href = api_get_path(WEB_PLUGIN_PATH).'CourseEvaluation/resources/css/course_evaluation.css?v=35';
+        $href = api_get_path(WEB_PLUGIN_PATH).'CourseEvaluation/resources/css/course_evaluation.css?v=36';
 
         return '<link rel="stylesheet" href="'.$this->e($href).'">'
             .'<script>
@@ -738,18 +745,19 @@ ceQuestionType(document.querySelector("#ce-question-dialog select[name=type]"));
      * @param list<array{label: string, url: string, icon: string, active?: bool, primary?: bool}> $items
      * @param list<array{label: string, url: string, icon: string, active?: bool, primary?: bool}> $end
      */
-    public function iconMenu(string $navClass, array $items, array $end = []): string
+    public function iconMenu(string $navClass, array $items, array $end = [], string $endHtml = ''): string
     {
         $html = '<div class="ce-menu '.$this->e($navClass).'" role="navigation"><div class="ce-menu-start">';
         foreach ($items as $item) {
             $html .= $this->menuButton($item);
         }
         $html .= '</div>';
-        if ($end) {
+        if ($end || '' !== $endHtml) {
             $html .= '<div class="ce-menu-end">';
             foreach ($end as $item) {
                 $html .= $this->menuButton($item);
             }
+            $html .= $endHtml;
             $html .= '</div>';
         }
 
