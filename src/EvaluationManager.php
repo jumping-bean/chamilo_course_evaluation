@@ -1676,9 +1676,14 @@ class EvaluationManager
         return function_exists('api_is_allowed_in_course') && api_is_allowed_in_course();
     }
 
+    public function isStudentView(): bool
+    {
+        return function_exists('api_is_student_view_active') && api_is_student_view_active();
+    }
+
     public function canManageCourse(): bool
     {
-        if (function_exists('api_is_student_view_active') && api_is_student_view_active()) {
+        if ($this->isStudentView()) {
             return false;
         }
         if (function_exists('api_is_platform_admin') && api_is_platform_admin()) {
@@ -1694,7 +1699,7 @@ class EvaluationManager
 
     public function canViewReports(): bool
     {
-        if (function_exists('api_is_student_view_active') && api_is_student_view_active()) {
+        if ($this->isStudentView()) {
             return false;
         }
         if ($this->canManageCourse()) {

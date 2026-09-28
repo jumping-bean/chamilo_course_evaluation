@@ -49,6 +49,11 @@ $userId = (int) api_get_user_id();
 $action = (string) ($_POST['action'] ?? $_GET['action'] ?? 'home');
 $canManage = $manager->canManageCourse();
 $canViewReports = $manager->canViewReports();
+if ($manager->isStudentView()) {
+    $canManage = false;
+    $canViewReports = false;
+    $action = 'home';
+}
 $message = '';
 $level = 'success';
 
@@ -75,6 +80,15 @@ if ('POST' === ($_SERVER['REQUEST_METHOD'] ?? 'GET')) {
 }
 
 $evaluation = $manager->findEvaluation($courseId, $sessionId);
+if (!$evaluation) {
+    $linkedCourseId = (int) ($_REQUEST['cid'] ?? 0);
+    if ($linkedCourseId > 0 && $linkedCourseId !== $courseId) {
+        $evaluation = $manager->findEvaluation($linkedCourseId, $sessionId);
+        if ($evaluation) {
+            $courseId = $linkedCourseId;
+        }
+    }
+}
 $globalTemplates = $manager->globalTemplates(true);
 if ($canViewReports && !$canManage && !in_array($action, ['report', 'responses', 'response'], true)) {
     $action = 'report';
@@ -119,7 +133,9 @@ $pageTitle = in_array($action, ['edit', 'questions', 'add'], true)
     : 'CourseEvaluation';
 $showReportHeader = 'report' === $action && $canViewReports;
 if (!$showReportHeader) {
-    echo '<h1>'.$view->e($plugin->get_lang($pageTitle)).'</h1>';
+    echo '<div class="section-header section-header--h2"><div class="section-header__title">'
+        .'<h1>'.$view->e($plugin->get_lang($pageTitle)).'</h1></div>'
+        .'<div class="section-header__actions">'.$view->studentViewSwitch().'</div></div>';
 }
 if ('' === $message && $canManage && isset($_GET['deleted'])) {
     $message = $view->t('EvaluationDeleted');
@@ -438,6 +454,9 @@ function deleteEvaluationForm(EvaluationView $view, EvaluationManager $manager, 
 
 function submitEvaluation(EvaluationManager $manager, EvaluationView $view, int $courseId, int $sessionId, int $userId): string
 {
+    if ($manager->isStudentView()) {
+        throw new RuntimeException($view->t('StudentViewPreview'));
+    }
     if ($sessionId > 0 && $manager->isDirectCourseStudent($userId, $courseId) && !$manager->isSessionLearner($userId, $courseId, $sessionId)) {
         $sessionId = 0;
     }
@@ -1025,6 +1044,7 @@ function reportScreen(EvaluationView $view, EvaluationManager $manager, int $cou
         .contextSummary($view, $manager, $courseId, $sessionId, $manager->findEvaluation($courseId, $sessionId), false)
         .'</div>'
         .'<div class="section-header__actions">'
+        .$view->studentViewSwitch()
         .'<a class="p-button p-component p-button-outlined p-button-sm" data-ce-export href="'.$view->e($export.'&export=csv&'.http_build_query($filters)).'" title="'.$view->e($view->t('ExportCsv')).'">'
         .'<span class="p-button-icon mdi mdi-file-delimited-outline"></span>'
         .'<span class="p-button-label">'.$view->e($view->t('ExportCsv')).'</span></a>'
@@ -1045,6 +1065,20 @@ function studentHome(EvaluationView $view, EvaluationManager $manager, $evaluati
 {
     if (!$manager->isStudentInContext($userId, $courseId, $sessionId)) {
         return '<p>'.$view->e($view->t('StudentsOnly')).'</p>';
+    }
+    if ($manager->isStudentView() && $evaluation && !$manager->findSubmission($evaluation, $userId)) {
+        if (!$evaluation->isOpenNow()) {
+            return '<p>'.$view->e($view->t('NotOpen')).'</p>';
+        }
+
+        return $view->flash($view->t('StudentViewPreview'), 'info')
+            .$view->studentForm(
+                $evaluation,
+                $manager->questionsFor($evaluation->getTemplate()),
+                $view->courseUrl('home'),
+                $manager->availableInstructors($courseId, $sessionId),
+                true
+            );
     }
     if ($evaluation && $manager->findSubmission($evaluation, $userId)) {
         $manager->ensureCertificateResult($evaluation, $userId);

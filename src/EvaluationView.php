@@ -75,7 +75,7 @@ class EvaluationView
 
     public function styles(): string
     {
-        $href = api_get_path(WEB_PLUGIN_PATH).'CourseEvaluation/resources/css/course_evaluation.css?v=36';
+        $href = api_get_path(WEB_PLUGIN_PATH).'CourseEvaluation/resources/css/course_evaluation.css?v=38';
 
         return '<link rel="stylesheet" href="'.$this->e($href).'">'
             .'<script>
@@ -89,11 +89,29 @@ function ceOpenDialogs(root){(root||document).querySelectorAll("dialog[data-ce-o
 function ceLoad(url,selector,push){var current=document.querySelector(selector);if(!current){location.href=url;return;}current.classList.add("ce-loading");current.setAttribute("aria-busy","true");if(request){request.abort();}request=new AbortController();fetch(url,{credentials:"same-origin",signal:request.signal}).then(function(response){return response.text();}).then(function(html){var doc=new DOMParser().parseFromString(html,"text/html");var next=doc.querySelector(selector);var node=document.querySelector(selector);if(!next||!node){location.href=url;return;}node.replaceWith(document.importNode(next,true));if(push){history.pushState({ce:selector},"",url);}if(doc.title){document.title=doc.title;}var exportLink=document.querySelector("[data-ce-export]");if(exportLink){var exportUrl=new URL(url,location.href);exportUrl.searchParams.set("export","csv");exportLink.href=exportUrl;}ceCrumbs(html);ceInitWizard(document);ceOpenDialogs(document);}).catch(function(error){if(error&&error.name==="AbortError"){return;}location.href=url;});}
 document.addEventListener("click",function(event){var toggle=event.target&&event.target.closest?event.target.closest("[data-ce-search-toggle]"):null;if(!toggle){return;}var panel=document.getElementById("ce-search-panel");if(!panel){return;}event.preventDefault();var open=panel.hasAttribute("hidden");if(open){panel.removeAttribute("hidden");}else{panel.setAttribute("hidden","");}toggle.setAttribute("aria-expanded",open?"true":"false");var icon=toggle.querySelector(".mdi");if(icon){icon.classList.toggle("mdi-chevron-down",!open);icon.classList.toggle("mdi-chevron-up",open);}});
 document.addEventListener("submit",function(event){var form=event.target;if(!form||!form.classList||!form.classList.contains("ce-report-filters")){return;}event.preventDefault();clearTimeout(timer);var params=new URLSearchParams(new FormData(form));var url=new URL(form.getAttribute("action")||location.pathname,location.href);url.search=params.toString();ceLoad(url,"#ce-report",true);});
-document.addEventListener("click",function(event){var link=event.target&&event.target.closest?event.target.closest("a"):null;if(!link||event.button||event.metaKey||event.ctrlKey||event.shiftKey||event.altKey){return;}var inReport=link.closest(".ce-report-nav");var inAdmin=link.closest(".ce-admin-tabs");var inPage=link.closest("#ce-page")&&ceSameTool(link.href);if(!inReport&&!inAdmin&&!inPage){return;}if(link.classList.contains("ce-menu-current")){event.preventDefault();return;}if(inReport){event.preventDefault();ceLoad(link.href,"#ce-report",true);return;}if(inAdmin){event.preventDefault();ceLoad(link.href,"#ce-screen",true);return;}event.preventDefault();ceLoad(link.href,"#ce-page",true);});
+document.addEventListener("click",function(event){var link=event.target&&event.target.closest?event.target.closest("a"):null;if(!link||event.button||event.metaKey||event.ctrlKey||event.shiftKey||event.altKey||link.classList.contains("ce-view-switch")){return;}var inReport=link.closest(".ce-report-nav");var inAdmin=link.closest(".ce-admin-tabs");var inPage=link.closest("#ce-page")&&ceSameTool(link.href);if(!inReport&&!inAdmin&&!inPage){return;}if(link.classList.contains("ce-menu-current")){event.preventDefault();return;}if(inReport){event.preventDefault();ceLoad(link.href,"#ce-report",true);return;}if(inAdmin){event.preventDefault();ceLoad(link.href,"#ce-screen",true);return;}event.preventDefault();ceLoad(link.href,"#ce-page",true);});
 window.addEventListener("popstate",function(){var selector=history.state&&history.state.ce;if(!selector||!document.querySelector(selector)){selector=ceRegion();}if(!document.querySelector(selector)){return;}ceLoad(location.href,selector,false);});
 document.addEventListener("DOMContentLoaded",function(){ceInitWizard(document);ceOpenDialogs(document);});
 })();
 </script>';
+    }
+
+    public function studentViewSwitch(): string
+    {
+        $active = function_exists('api_is_student_view_active') && api_is_student_view_active();
+        $teacher = $active
+            || (function_exists('api_is_platform_admin') && api_is_platform_admin())
+            || (function_exists('api_is_allowed_to_edit') && api_is_allowed_to_edit(false, false, true, false));
+        if (!$teacher) {
+            return '';
+        }
+        $label = $this->t($active ? 'SwitchToTeacherView' : 'SwitchToStudentView');
+        $url = $this->courseUrl('home', ['isStudentView' => $active ? 'false' : 'true']);
+        $icon = $active ? 'mdi-eye' : 'mdi-eye-off';
+
+        return '<a class="p-button p-component p-button-outlined p-button-sm ce-view-switch" href="'.$this->e($url).'">'
+            .'<span class="p-button-icon mdi '.$icon.'"></span>'
+            .'<span class="p-button-label">'.$this->e($label).'</span></a>';
     }
 
     public function courseToolbar(?string $url = null): string
@@ -417,7 +435,7 @@ ceQuestionType(document.querySelector("#ce-question-dialog select[name=type]"));
      * @param list<array{id: int, name: string}> $instructors
      * @param Question[] $questions
      */
-    public function studentForm(Evaluation $evaluation, array $questions, string $action, array $instructors = []): string
+    public function studentForm(Evaluation $evaluation, array $questions, string $action, array $instructors = [], bool $preview = false): string
     {
         $steps = [];
         foreach ($questions as $question) {
@@ -454,10 +472,19 @@ ceQuestionType(document.querySelector("#ce-question-dialog select[name=type]"));
             }
             if ($index < $total) {
                 $sections .= '<button class="p-button p-component" type="button" data-ce-next><span class="p-button-label">'.$this->e($this->t('Next')).'</span></button>';
-            } else {
+            } elseif (!$preview) {
                 $sections .= '<button class="p-button p-component p-button-success" type="submit"><span class="p-button-label">'.$this->e($this->t('SubmitEvaluation')).'</span></button>';
             }
             $sections .= '</div></section>';
+        }
+
+        if ($preview) {
+            return '<div class="ce-form ce-wizard">'
+                .'<p class="ce-wizard-progress" data-ce-label="'.$this->e($this->t('WizardPage')).'" aria-live="polite">'.$this->e($progress).'</p>'
+                .'<div class="ce-wizard-layout">'
+                .'<ol class="ce-wizard-nav">'.$nav.'</ol>'
+                .'<div class="ce-wizard-main">'.$sections.'</div>'
+                .'</div></div>';
         }
 
         return '<form method="post" action="'.$this->e($action).'" class="ce-form ce-wizard">'

@@ -205,6 +205,11 @@
     margin: 0;
 }
 
+.section-header__actions .ce-view-switch .p-button-icon,
+.ce-view-switch .p-button-icon {
+    margin-right: 0.4rem;
+}
+
 .ce-questionnaire-pick {
     display: flex;
     align-items: center;
